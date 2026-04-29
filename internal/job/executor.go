@@ -127,7 +127,6 @@ func (e *Executor) Run(ctx context.Context) (exitCode int) {
 			shell.WithPTY(e.RunInPty),
 			shell.WithStdout(preRedactedStdout), // shell -> redactor -> real stdout
 			shell.WithSignalGracePeriod(e.SignalGracePeriod),
-			shell.WithTraceContextCodec(e.TraceContextCodec),
 		)
 		if err != nil {
 			fmt.Printf("Error creating shell: %v", err)
@@ -348,32 +347,14 @@ type HookConfig struct {
 	PluginName     string
 }
 
-func (e *Executor) tracingImplementationSpecificHookScope(scope string) string {
-	if e.TracingBackend != tracetools.BackendDatadog {
-		return scope
-	}
-
-	// In olden times, when the datadog tracing backend was written, these hook scopes were named "local" and "global"
-	// We need to maintain backwards compatibility with the old names for span attribute reasons, so we map them here
-	switch scope {
-	case HookScopeRepository:
-		return "local"
-	case HookScopeAgent:
-		return "global"
-	default:
-		return scope
-	}
-}
-
 // executeHook runs a hook script with the hookRunner
 func (e *Executor) executeHook(ctx context.Context, hookCfg HookConfig) error {
-	scopeName := e.tracingImplementationSpecificHookScope(hookCfg.Scope)
-	spanName := e.implementationSpecificSpanName(fmt.Sprintf("%s %s hook", scopeName, hookCfg.Name), "hook.execute")
+	spanName := fmt.Sprintf("%s %s hook", hookCfg.Scope, hookCfg.Name)
 	span, ctx := tracetools.StartSpanFromContext(ctx, spanName, e.TracingBackend)
 	var err error
 	defer func() { span.FinishWithError(err) }()
 	span.AddAttributes(map[string]string{
-		"hook.type":    scopeName,
+		"hook.type":    hookCfg.Scope,
 		"hook.name":    hookCfg.Name,
 		"hook.command": hookCfg.Path,
 	})
@@ -1044,8 +1025,7 @@ func (e *Executor) tearDown(ctx context.Context) error {
 
 // runPreCommandHooks runs the pre-command hooks and adds tracing spans.
 func (e *Executor) runPreCommandHooks(ctx context.Context) (err error) {
-	spanName := e.implementationSpecificSpanName("pre-command", "pre-command hooks")
-	span, ctx := tracetools.StartSpanFromContext(ctx, spanName, e.TracingBackend)
+	span, ctx := tracetools.StartSpanFromContext(ctx, "pre-command", e.TracingBackend)
 	defer func() { span.FinishWithError(err) }()
 
 	if err := e.executeGlobalHook(ctx, "pre-command"); err != nil {
@@ -1074,8 +1054,7 @@ func (e *Executor) runCommand(ctx context.Context) error {
 
 // runPostCommandHooks runs the post-command hooks and adds tracing spans.
 func (e *Executor) runPostCommandHooks(ctx context.Context) (err error) {
-	spanName := e.implementationSpecificSpanName("post-command", "post-command hooks")
-	span, ctx := tracetools.StartSpanFromContext(ctx, spanName, e.TracingBackend)
+	span, ctx := tracetools.StartSpanFromContext(ctx, "post-command", e.TracingBackend)
 	defer func() { span.FinishWithError(err) }()
 
 	if experiments.IsEnabled(ctx, experiments.LegacyPostHookOrder) {
@@ -1167,8 +1146,7 @@ func (e *Executor) defaultCommandPhase(ctx context.Context) error {
 		}
 	}()
 
-	spanName := e.implementationSpecificSpanName("default command hook", "hook.execute")
-	span, ctx := tracetools.StartSpanFromContext(ctx, spanName, e.TracingBackend)
+	span, ctx := tracetools.StartSpanFromContext(ctx, "default command hook", e.TracingBackend)
 	var err error
 	defer func() { span.FinishWithError(err) }()
 	span.AddAttributes(map[string]string{

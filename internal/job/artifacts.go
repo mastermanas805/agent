@@ -12,8 +12,7 @@ func (e *Executor) artifactPhase(ctx context.Context) error {
 		return nil
 	}
 
-	spanName := e.implementationSpecificSpanName("artifacts", "artifact upload")
-	span, ctx := tracetools.StartSpanFromContext(ctx, spanName, e.TracingBackend)
+	span, ctx := tracetools.StartSpanFromContext(ctx, "artifacts", e.TracingBackend)
 	var err error
 	defer func() { span.FinishWithError(err) }()
 

@@ -2,47 +2,14 @@ package tracetools
 
 import (
 	"errors"
-	"reflect"
 	"slices"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
-	"github.com/opentracing/opentracing-go"
-	"github.com/opentracing/opentracing-go/log"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/embedded"
 )
-
-// TestOpenTracingSpan is a simple opentracing-compatible span to help test.
-type TestOpenTracingSpan struct {
-	ctx      opentracing.SpanContext
-	finished bool
-	fields   []log.Field
-	tags     map[string]any
-}
-
-func (t *TestOpenTracingSpan) Finish()                                       { t.finished = true }
-func (t *TestOpenTracingSpan) FinishWithOptions(_ opentracing.FinishOptions) { t.finished = true }
-func (t *TestOpenTracingSpan) Context() opentracing.SpanContext              { return t.ctx }
-func (t *TestOpenTracingSpan) SetOperationName(_ string) opentracing.Span    { return t }
-func (t *TestOpenTracingSpan) SetTag(k string, v any) opentracing.Span {
-	t.tags[k] = v
-	return t
-}
-func (t *TestOpenTracingSpan) LogFields(f ...log.Field)                    { t.fields = append(t.fields, f...) }
-func (t *TestOpenTracingSpan) LogKV(_ ...any)                              {}
-func (t *TestOpenTracingSpan) SetBaggageItem(_, _ string) opentracing.Span { return t }
-func (t *TestOpenTracingSpan) BaggageItem(_ string) string                 { return "" }
-func (t *TestOpenTracingSpan) Tracer() opentracing.Tracer                  { return nil }
-func (t *TestOpenTracingSpan) LogEvent(_ string)                           {}
-func (t *TestOpenTracingSpan) LogEventWithPayload(_ string, _ any)         {}
-func (t *TestOpenTracingSpan) Log(_ opentracing.LogData)                   {}
-
-func newTestOpenTracingSpan() *OpenTracingSpan {
-	return &OpenTracingSpan{Span: &TestOpenTracingSpan{tags: map[string]any{}}}
-}
 
 type TestOtelSpan struct {
 	embedded.Span
@@ -85,25 +52,6 @@ func newTestOtelSpan() *OpenTelemetrySpan {
 	return &OpenTelemetrySpan{Span: &TestOtelSpan{events: []string{}, attributes: []attribute.KeyValue{}}}
 }
 
-func TestAddAttribute_OpenTracing(t *testing.T) {
-	t.Parallel()
-
-	span := newTestOpenTracingSpan()
-	implSpan, ok := span.Span.(*TestOpenTracingSpan)
-	if got := ok; !got {
-		t.Errorf("span.Span.(*TestOpenTracingSpan) = %t, want true", got)
-	}
-
-	if got := len(implSpan.tags); got != 0 {
-		t.Errorf("implSpan.tags = %v, want 0", got)
-	}
-
-	span.AddAttributes(map[string]string{"colour": "green", "flavour": "spicy"})
-	if diff := cmp.Diff(implSpan.tags, map[string]any{"colour": "green", "flavour": "spicy"}); diff != "" {
-		t.Errorf("implSpan.tags diff (-got +want):\n%s", diff)
-	}
-}
-
 func TestAddAttributeToSpan_OpenTelemetry(t *testing.T) {
 	t.Parallel()
 
@@ -123,47 +71,6 @@ func TestAddAttributeToSpan_OpenTelemetry(t *testing.T) {
 	}
 	if got, want := implSpan.attributes, attribute.String("flavour", "bittersweet"); !slices.Contains(got, want) {
 		t.Errorf("implSpan.attributes = %v, want containing %v", got, want)
-	}
-}
-
-func TestFinishWithError_OpenTracing(t *testing.T) {
-	t.Parallel()
-	err := errors.New("test error")
-
-	span := newTestOpenTracingSpan()
-	implSpan, ok := span.Span.(*TestOpenTracingSpan)
-	if got := ok; !got {
-		t.Errorf("span.Span.(*TestOpenTracingSpan) = %t, want true", got)
-	}
-
-	span.FinishWithError(err)
-	if got := implSpan.finished; !got {
-		t.Errorf("implSpan.finished = %t, want true", got)
-	}
-	if diff := cmp.Diff(implSpan.tags["error"], true); diff != "" {
-		t.Errorf("implSpan.tags[\"error\"] diff (-got +want):\n%s", diff)
-	}
-	if got, want := implSpan.fields, []log.Field{log.Event("error"), log.Error(err)}; !reflect.DeepEqual(got, want) {
-		t.Errorf("implSpan.fields = %v, want %v", got, want)
-	}
-
-	span = newTestOpenTracingSpan()
-	implSpan, ok = span.Span.(*TestOpenTracingSpan)
-	if got := ok; !got {
-		t.Errorf("span.Span.(*TestOpenTracingSpan) = %t, want true", got)
-	}
-
-	span.FinishWithError(nil)
-	if got := implSpan.finished; !got {
-		t.Errorf("implSpan.finished = %t, want true", got)
-	}
-	got := implSpan.tags
-	want := "error"
-	if _, has := got[want]; has {
-		t.Errorf("implSpan.tags = %v, want containing %q", got, want)
-	}
-	if got := len(implSpan.fields); got != 0 {
-		t.Errorf("implSpan.fields = %v, want 0", got)
 	}
 }
 
